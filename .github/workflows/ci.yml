@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: python -m pip install -e ".[dev]"
+      - run: pytest
+      - name: Integration tests (real PyPI/GitHub)
+        run: pytest -m network
+        env:
+          PHANTOM_NETWORK_TESTS: "1"
+
+  action-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan a known-clean release with the local action
+        id: phantom
+        uses: ./
+        with:
+          spec: six==1.16.0
+      - name: Assert clean exit
+        run: test "${{ steps.phantom.outputs.exit-code }}" = "0"
+      - name: Assert SARIF was produced
+        run: python3 -c "import json,sys; json.load(open('phantom-results.sarif'))"
