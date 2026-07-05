@@ -1,0 +1,66 @@
+name: phantom scan
+description: Detect divergence between a package's declared source and its published artifact
+branding:
+  icon: eye-off
+  color: purple
+
+inputs:
+  spec:
+    description: Package spec to scan, e.g. requests==2.31.0
+    required: true
+  ecosystem:
+    description: Package ecosystem
+    required: false
+    default: pypi
+  sarif-file:
+    description: Path where the SARIF report is written (removed on execution error)
+    required: false
+    default: phantom-results.sarif
+  fail-on-out-of-scope:
+    description: Fail when the release has no pure-Python wheel (phantom exit 3)
+    required: false
+    default: "false"
+
+outputs:
+  exit-code:
+    description: phantom exit code (0 clean, 1 findings, 2 error, 3 out of scope)
+    value: ${{ steps.scan.outputs.exit-code }}
+  sarif-file:
+    description: Path of the written SARIF report
+    value: ${{ inputs.sarif-file }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install phantom
+      shell: bash
+      run: python3 -m pip install --quiet "${{ github.action_path }}"
+
+    - name: Scan
+      id: scan
+      shell: bash
+      env:
+        SPEC: ${{ inputs.spec }}
+        ECOSYSTEM: ${{ inputs.ecosystem }}
+        SARIF_FILE: ${{ inputs.sarif-file }}
+        FAIL_ON_OUT_OF_SCOPE: ${{ inputs.fail-on-out-of-scope }}
+      run: |
+        set +e
+        python3 -m phantom.cli scan "$SPEC" --ecosystem "$ECOSYSTEM" --sarif > "$SARIF_FILE"
+        code=$?
+        set -e
+        echo "exit-code=$code" >> "$GITHUB_OUTPUT"
+
+        if [ "$code" -le 1 ]; then
+          # Human-readable report for the job log; served from the disk cache.
+          python3 -m phantom.cli scan "$SPEC" --ecosystem "$ECOSYSTEM" || true
+        else
+          # No scan ran, so the SARIF file has no report to upload.
+          rm -f "$SARIF_FILE"
+        fi
+
+        if [ "$code" -eq 3 ] && [ "$FAIL_ON_OUT_OF_SCOPE" != "true" ]; then
+          echo "::warning::phantom: $SPEC is out of scope (no pure-Python wheel available)"
+          exit 0
+        fi
+        exit "$code"
