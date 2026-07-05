@@ -49,6 +49,51 @@ Downloads are cached on disk (`~/.cache/phantom` by default, `--cache-dir` to ov
 | 2 | Execution error (bad arguments, network failure, package not found) |
 | 3 | Out of scope: the release has no pure-Python wheel (binary wheels or sdist only) |
 
+## GitHub Action
+
+Package maintainers can verify their own releases right after publishing —
+this catches a compromised build/publish pipeline (the LiteLLM case) even
+though the repo looks clean:
+
+```yaml
+name: verify-release
+on:
+  workflow_run:
+    workflows: [publish]        # run after your publish workflow completes
+    types: [completed]
+
+jobs:
+  phantom:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write    # for SARIF upload
+    steps:
+      - uses: pipebreach/phantom@main
+        id: scan
+        with:
+          spec: mypkg==1.2.3    # e.g. derived from the release tag
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('phantom-results.sarif') != ''
+        with:
+          sarif_file: phantom-results.sarif
+```
+
+The job fails when phantom finds a high/critical divergence. Notes:
+
+- Scan *after* the artifact is live on PyPI (publishing and scanning in the
+  same workflow can race index propagation).
+- If your tags carry a `v` prefix, strip it for the spec: phantom probes tag
+  conventions on the source side, but the spec version must match PyPI.
+- Releases without a pure-Python wheel emit a warning instead of failing;
+  set `fail-on-out-of-scope: "true"` to make them fail.
+
+Inputs: `spec` (required), `ecosystem` (default `pypi`), `sarif-file`
+(default `phantom-results.sarif`), `fail-on-out-of-scope` (default `false`).
+Outputs: `exit-code`, `sarif-file`.
+
+Scanning a whole lockfile from a consumer project (`phantom audit`) will use
+the same action once M2 lands.
+
 ## Finding types
 
 | Type | Meaning | Severity |
