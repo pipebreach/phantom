@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from phantom import risk
+from phantom import risk, spans
 from phantom.models import (
     Artifact,
     Confidence,
@@ -24,6 +24,11 @@ from phantom.normalizers.base import Normalizer
 # Commonly generated at build time (setuptools-scm, hatch-vcs); a phantom
 # hit on these gets low confidence.
 _LIKELY_GENERATED_BASENAMES = {"_version.py", "version.py", "_version_meta.py"}
+
+# Build/bundle output locations; divergence there is expected until build
+# normalizers exist, so confidence drops to low.
+_LIKELY_BUILD_PREFIXES = ("dist/", "build/", "out/")
+_LIKELY_BUILD_SUFFIXES = (".min.js", ".bundle.js")
 
 
 @dataclass
@@ -52,10 +57,69 @@ def diff(
         files_scanned += 1
         if normalizer.normalized_hash(file) in source_hashes:
             continue
-        findings.append(_phantom_finding(file, source))
+        findings.extend(_diverging_file_findings(file, source))
 
-    findings.sort(key=lambda f: (-f.severity.rank, f.path or ""))
+    findings.sort(key=lambda f: (-f.severity.rank, f.path or "", f.start_line or 0))
     return DiffOutcome(findings=findings, files_scanned=files_scanned)
+
+
+def _diverging_file_findings(file: FileEntry, source: SourceTree) -> list[Finding]:
+    """A diverging Python file with a source counterpart gets span-level
+    localization; anything else is a whole phantom file."""
+    if file.path.endswith(".py"):
+        counterpart = spans.find_source_counterpart(file, source.files)
+        if counterpart is not None:
+            found = spans.find_spans(file, counterpart[0])
+            if found is not None:
+                return _span_findings(file, counterpart, found, source)
+    return [_phantom_finding(file, source)]
+
+
+def _span_findings(
+    file: FileEntry,
+    counterpart: tuple[FileEntry, str],
+    found: list[spans.Span],
+    source: SourceTree,
+) -> list[Finding]:
+    source_file, matched_by = counterpart
+    confidence = Confidence.HIGH if matched_by == "path" else Confidence.MEDIUM
+    if not found:
+        # Only deletions or reordering: divergent, but nothing was added.
+        return [
+            Finding(
+                type=FindingType.PHANTOM_FILE,
+                path=file.path,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.MEDIUM,
+                reason=(
+                    f"{file.path} diverges from {source_file.path} in "
+                    f"{source.repo_url}@{source.ref}, but no injected code was "
+                    f"found — only removed or reordered statements"
+                ),
+            )
+        ]
+    findings = []
+    for span in found:
+        assessment = risk.assess(FileEntry(file.path, span.segment.encode("utf-8")))
+        label = f" `{span.name}`" if span.name else ""
+        findings.append(
+            Finding(
+                type=FindingType.PHANTOM_SPAN,
+                path=file.path,
+                severity=assessment.severity,
+                confidence=confidence,
+                reason=(
+                    f"{span.kind} top-level code{label} at lines "
+                    f"{span.start_line}-{span.end_line} of {file.path} is not "
+                    f"present in {source_file.path} of {source.repo_url}@"
+                    f"{source.ref}; {assessment.detail}"
+                ),
+                execution_vectors=assessment.vectors,
+                start_line=span.start_line,
+                end_line=span.end_line,
+            )
+        )
+    return findings
 
 
 def _build_index(files: list[FileEntry], normalizers: list[Normalizer]) -> set[str]:
@@ -118,6 +182,14 @@ def _phantom_finding(file: FileEntry, source: SourceTree) -> Finding:
         reason += (
             "; note: this filename is commonly generated at build time "
             "(e.g. setuptools-scm), so this may be legitimate generated code"
+        )
+    elif file.path.startswith(_LIKELY_BUILD_PREFIXES) or file.path.endswith(
+        _LIKELY_BUILD_SUFFIXES
+    ):
+        confidence = Confidence.LOW
+        reason += (
+            "; note: this path looks like build/bundle output, which cannot "
+            "be verified against the source until build normalizers exist"
         )
     return Finding(
         type=FindingType.PHANTOM_FILE,
