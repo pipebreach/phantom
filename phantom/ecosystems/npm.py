@@ -1,4 +1,4 @@
-"""npm ecosystem: tarballs from the npm registry, sources from GitHub tag
+"""npm ecosystem: tarballs from the npm registry, sources from forge tag
 tarballs via the ``repository`` field of the package manifest.
 
 JS files are compared by raw (line-ending-normalized) content: packages that
@@ -12,26 +12,29 @@ import json
 import urllib.parse
 
 from phantom.cache import DiskCache, http_get
-from phantom.ecosystems import github
+from phantom.ecosystems import forges
 from phantom.ecosystems.base import Ecosystem, Fetcher, SourceResolver
 from phantom.errors import NotFoundError
 from phantom.models import Artifact, FindingType, NoSource, SourceTree
 from phantom.normalizers.base import Normalizer
 from phantom.normalizers.raw import RawNormalizer
 
-NPM_META_URL = "https://registry.npmjs.org/{pkg}/{version}"
+DEFAULT_REGISTRY_URL = "https://registry.npmjs.org"
 
 JS_EXTENSIONS = (".js", ".mjs", ".cjs")
 
 
 class NpmFetcher(Fetcher):
-    def __init__(self, cache: DiskCache | None = None) -> None:
+    def __init__(
+        self, cache: DiskCache | None = None, registry_url: str | None = None
+    ) -> None:
         self.cache = cache
+        self.registry_url = (registry_url or DEFAULT_REGISTRY_URL).rstrip("/")
 
     def fetch_artifact(self, pkg: str, version: str) -> Artifact:
         # Scoped names keep the "@" but need the "/" encoded (@scope%2fname).
         quoted = urllib.parse.quote(pkg, safe="@")
-        url = NPM_META_URL.format(pkg=quoted, version=version)
+        url = f"{self.registry_url}/{quoted}/{version}"
         try:
             metadata = json.loads(http_get(url, self.cache))
         except NotFoundError as exc:
@@ -43,7 +46,7 @@ class NpmFetcher(Fetcher):
             package=pkg,
             version=version,
             filename=tarball_url.rsplit("/", 1)[-1],
-            files=github.untar(data),  # npm tarballs root at "package/"
+            files=forges.untar(data),  # npm tarballs root at "package/"
             metadata=metadata,
         )
 
@@ -55,31 +58,30 @@ class NpmSourceResolver(SourceResolver):
     def resolve_source(
         self, pkg: str, version: str, metadata: dict
     ) -> SourceTree | NoSource:
-        repo = self._find_github_repo(metadata)
+        repo = forges.find_repo(self._candidate_urls(metadata))
         if repo is None:
             return NoSource(
                 finding_type=FindingType.NO_SOURCE_DECLARED,
                 detail=(
-                    f"{pkg} declares no GitHub repository in its manifest "
-                    f"(repository/homepage). The published artifact cannot be "
-                    f"verified against any source."
+                    f"{pkg} declares no supported source repository in its "
+                    f"manifest (repository/homepage). The published artifact "
+                    f"cannot be verified against any source."
                 ),
             )
-        owner, name = repo
-        tree = github.fetch_tag_tree(owner, name, version, self.cache)
+        tree = repo.forge.fetch_tag_tree(repo, version, self.cache)
         if isinstance(tree, SourceTree):
             return tree
         return NoSource(
             finding_type=FindingType.SOURCE_REF_NOT_FOUND,
             detail=(
-                f"no tag matching version {version} found in "
-                f"https://github.com/{owner}/{name} (tried: {', '.join(tree)})"
+                f"no tag matching version {version} found in {repo.url} "
+                f"(tried: {', '.join(tree)})"
             ),
-            repo_url=f"https://github.com/{owner}/{name}",
+            repo_url=repo.url,
         )
 
     @staticmethod
-    def _find_github_repo(metadata: dict) -> tuple[str, str] | None:
+    def _candidate_urls(metadata: dict) -> list[str]:
         repository = metadata.get("repository")
         candidates = []
         if isinstance(repository, dict) and repository.get("url"):
@@ -88,18 +90,16 @@ class NpmSourceResolver(SourceResolver):
             candidates.append(repository)
         if metadata.get("homepage"):
             candidates.append(metadata["homepage"])
-        for url in candidates:
-            repo = github.parse_repo_url(url)
-            if repo is not None:
-                return repo
-        return None
+        return candidates
 
 
 class NpmEcosystem(Ecosystem):
     name = "npm"
 
-    def __init__(self, cache: DiskCache | None = None) -> None:
-        self._fetcher = NpmFetcher(cache)
+    def __init__(
+        self, cache: DiskCache | None = None, registry_url: str | None = None
+    ) -> None:
+        self._fetcher = NpmFetcher(cache, registry_url)
         self._source_resolver = NpmSourceResolver(cache)
         self._normalizers: list[Normalizer] = [RawNormalizer(JS_EXTENSIONS)]
 

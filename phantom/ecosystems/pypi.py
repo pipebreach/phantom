@@ -1,5 +1,5 @@
-"""PyPI ecosystem: wheels from the JSON API, sources from GitHub tag
-tarballs. Only pure-Python wheels (``*-none-any.whl``) are in scope."""
+"""PyPI ecosystem: wheels from the JSON API, sources from forge tag tarballs.
+Only pure-Python wheels (``*-none-any.whl``) are in scope."""
 
 from __future__ import annotations
 
@@ -8,25 +8,28 @@ import json
 import zipfile
 
 from phantom.cache import DiskCache, http_get
-from phantom.ecosystems import github
+from phantom.ecosystems import forges
 from phantom.ecosystems.base import Ecosystem, Fetcher, SourceResolver
 from phantom.errors import FetchError, NotFoundError, OutOfScopeError
 from phantom.models import Artifact, FileEntry, FindingType, NoSource, SourceTree
 from phantom.normalizers.base import Normalizer
 from phantom.normalizers.python_ast import PythonASTNormalizer
 
-PYPI_JSON_URL = "https://pypi.org/pypi/{pkg}/{version}/json"
+DEFAULT_INDEX_URL = "https://pypi.org/pypi"
 
 # project_urls keys checked in priority order.
 _SOURCE_URL_KEYS = ("source", "source code", "repository", "code", "github", "homepage")
 
 
 class PyPIFetcher(Fetcher):
-    def __init__(self, cache: DiskCache | None = None) -> None:
+    def __init__(
+        self, cache: DiskCache | None = None, index_url: str | None = None
+    ) -> None:
         self.cache = cache
+        self.index_url = (index_url or DEFAULT_INDEX_URL).rstrip("/")
 
     def fetch_artifact(self, pkg: str, version: str) -> Artifact:
-        url = PYPI_JSON_URL.format(pkg=pkg, version=version)
+        url = f"{self.index_url}/{pkg}/{version}/json"
         try:
             metadata = json.loads(http_get(url, self.cache))
         except NotFoundError as exc:
@@ -91,31 +94,30 @@ class PyPISourceResolver(SourceResolver):
     def resolve_source(
         self, pkg: str, version: str, metadata: dict
     ) -> SourceTree | NoSource:
-        repo = self._find_github_repo(metadata)
+        repo = forges.find_repo(self._candidate_urls(metadata))
         if repo is None:
             return NoSource(
                 finding_type=FindingType.NO_SOURCE_DECLARED,
                 detail=(
-                    f"{pkg} declares no GitHub source repository in its PyPI "
+                    f"{pkg} declares no supported source repository in its PyPI "
                     f"metadata (project_urls/home_page). The published artifact "
                     f"cannot be verified against any source."
                 ),
             )
-        owner, name = repo
-        tree = github.fetch_tag_tree(owner, name, version, self.cache)
+        tree = repo.forge.fetch_tag_tree(repo, version, self.cache)
         if isinstance(tree, SourceTree):
             return tree
         return NoSource(
             finding_type=FindingType.SOURCE_REF_NOT_FOUND,
             detail=(
-                f"no tag matching version {version} found in "
-                f"https://github.com/{owner}/{name} (tried: {', '.join(tree)})"
+                f"no tag matching version {version} found in {repo.url} "
+                f"(tried: {', '.join(tree)})"
             ),
-            repo_url=f"https://github.com/{owner}/{name}",
+            repo_url=repo.url,
         )
 
     @staticmethod
-    def _find_github_repo(metadata: dict) -> tuple[str, str] | None:
+    def _candidate_urls(metadata: dict) -> list[str]:
         project_urls = {
             key.lower(): value
             for key, value in (metadata.get("project_urls") or {}).items()
@@ -127,18 +129,16 @@ class PyPISourceResolver(SourceResolver):
         candidates += [v for v in project_urls.values() if v not in candidates]
         if metadata.get("home_page"):
             candidates.append(metadata["home_page"])
-        for url in candidates:
-            repo = github.parse_repo_url(url)
-            if repo is not None:
-                return repo
-        return None
+        return candidates
 
 
 class PyPIEcosystem(Ecosystem):
     name = "pypi"
 
-    def __init__(self, cache: DiskCache | None = None) -> None:
-        self._fetcher = PyPIFetcher(cache)
+    def __init__(
+        self, cache: DiskCache | None = None, index_url: str | None = None
+    ) -> None:
+        self._fetcher = PyPIFetcher(cache, index_url)
         self._source_resolver = PyPISourceResolver(cache)
         self._normalizers: list[Normalizer] = [PythonASTNormalizer()]
 
