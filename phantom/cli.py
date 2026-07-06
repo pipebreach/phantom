@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from phantom import __version__, core
+from phantom import __version__, audit as audit_mod, core
 from phantom.cache import DiskCache, default_cache_dir
 from phantom.errors import OutOfScopeError, PhantomError
 from phantom.registry import Registry, build_default_registry
@@ -46,55 +46,64 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=_EXIT_CODES_HELP,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    scan.add_argument("spec", help="package spec in the form <pkg>==<version>")
     scan.add_argument(
+        "spec",
+        help="package spec: <pkg>==<version> (pypi) or <pkg>@<version> (npm)",
+    )
+    _add_common_options(scan)
+
+    audit = subparsers.add_parser(
+        "audit",
+        help="scan every pinned package in a lockfile (requirements.txt / poetry.lock)",
+        epilog=_EXIT_CODES_HELP,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    audit.add_argument("lockfile", type=Path, help="path to the lockfile")
+    _add_common_options(audit)
+
+    return parser
+
+
+def _add_common_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
         "--ecosystem",
         default="pypi",
         help="package ecosystem (default: pypi)",
     )
-    output = scan.add_mutually_exclusive_group()
+    output = parser.add_mutually_exclusive_group()
     output.add_argument(
         "--json", action="store_true", help="emit the versioned JSON schema"
     )
     output.add_argument(
         "--sarif", action="store_true", help="emit SARIF 2.1.0 for code scanning"
     )
-    scan.add_argument(
+    parser.add_argument(
         "--cache-dir",
         type=Path,
         default=None,
         help=f"download cache directory (default: {default_cache_dir()})",
     )
 
-    audit = subparsers.add_parser(
-        "audit",
-        help="scan every package in a lockfile (requirements.txt / poetry.lock) [M2]",
-    )
-    audit.add_argument("lockfile", type=Path, help="path to the lockfile")
-
-    return parser
-
 
 def run(argv: list[str] | None = None, registry: Registry | None = None) -> int:
     """Parse arguments and execute; ``registry`` is injectable for tests."""
     args = build_parser().parse_args(argv)
 
-    if args.command == "audit":
-        print(
-            "phantom audit is not implemented yet (planned for M2).",
-            file=sys.stderr,
-        )
-        return EXIT_ERROR
-
-    try:
-        package, version = _parse_spec(args.spec)
-    except ValueError as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return EXIT_ERROR
-
     if registry is None:
         cache = DiskCache(args.cache_dir or default_cache_dir())
         registry = build_default_registry(cache)
+
+    if args.command == "audit":
+        return _run_audit(args, registry)
+    return _run_scan(args, registry)
+
+
+def _run_scan(args: argparse.Namespace, registry: Registry) -> int:
+    try:
+        package, version = _parse_spec(args.spec, args.ecosystem)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
 
     try:
         ecosystem = registry.get(args.ecosystem)
@@ -116,13 +125,37 @@ def run(argv: list[str] | None = None, registry: Registry | None = None) -> int:
     return core.exit_code_for(result)
 
 
-def _parse_spec(spec: str) -> tuple[str, str]:
+def _run_audit(args: argparse.Namespace, registry: Registry) -> int:
+    try:
+        ecosystem = registry.get(args.ecosystem)
+        result = audit_mod.audit(args.lockfile, ecosystem)
+    except PhantomError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if args.json:
+        print(json_report.render_audit(result))
+    elif args.sarif:
+        print(sarif_report.render_audit(result))
+    else:
+        print(table_report.render_audit(result))
+
+    return audit_mod.exit_code_for(result)
+
+
+def _parse_spec(spec: str, ecosystem: str) -> tuple[str, str]:
     package, sep, version = spec.partition("==")
-    if not sep or not package or not version:
-        raise ValueError(
-            f"invalid spec {spec!r}: expected exact pin <pkg>==<version>"
-        )
-    return package.strip(), version.strip()
+    if sep and package and version:
+        return package.strip(), version.strip()
+    if ecosystem == "npm" and "@" in spec[1:]:
+        # rpartition keeps the scope: @scope/pkg@1.0.0 -> (@scope/pkg, 1.0.0)
+        package, _, version = spec.rpartition("@")
+        if package and version:
+            return package.strip(), version.strip()
+    raise ValueError(
+        f"invalid spec {spec!r}: expected <pkg>==<version> (pypi) "
+        f"or <pkg>@<version> (npm)"
+    )
 
 
 def main() -> None:
