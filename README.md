@@ -26,6 +26,11 @@ uvx phantom-scan scan requests==2.31.0
 
 # Scan a single package version
 phantom scan requests==2.31.0
+phantom scan mime-db@1.52.0 --ecosystem npm
+
+# Scan every pinned package in a lockfile
+phantom audit requirements.txt
+phantom audit poetry.lock
 
 # Machine-readable output
 phantom scan requests==2.31.0 --json
@@ -37,8 +42,11 @@ What a scan does:
 1. Downloads the pure-Python wheel from the PyPI JSON API.
 2. Resolves the source repo from the package metadata (`project_urls`) and finds the tag matching the version (`v{ver}`, `{ver}`, `release-{ver}`).
 3. Computes an **AST-normalized hash** of every `.py` file on both sides (comments/whitespace/formatting don't count) and flags every wheel file whose content exists nowhere in the source.
-4. Grades each phantom by its execution vectors (subprocess, network, `exec`/`eval`, `os.environ` access). Reading data + network egress = `critical` (exfiltration shape).
-5. Any `.pth` file inside a wheel is always flagged (it executes at interpreter startup).
+4. When a diverging file *does* exist in the source, runs an intra-file AST diff to localize the injected or modified statements (**phantom spans**, reported with line numbers).
+5. Grades each phantom by its execution vectors (subprocess, network, `exec`/`eval`, `os.environ` access). Reading data + network egress = `critical` (exfiltration shape).
+6. Any `.pth` file inside a wheel is always flagged (it executes at interpreter startup).
+
+For npm, tarballs are compared by raw (line-ending-normalized) content and JS phantom files are graded by capability patterns (`child_process`, `fetch`, `process.env`, `eval`).
 
 Downloads are cached on disk (`~/.cache/phantom` by default, `--cache-dir` to override), so re-scanning the same `pkg==version` is deterministic and offline.
 
@@ -93,14 +101,15 @@ Inputs: `spec` (required), `ecosystem` (default `pypi`), `sarif-file`
 (default `phantom-results.sarif`), `fail-on-out-of-scope` (default `false`).
 Outputs: `exit-code`, `sarif-file`.
 
-Scanning a whole lockfile from a consumer project (`phantom audit`) will use
-the same action once M2 lands.
+Consumer projects can run `phantom audit requirements.txt` in CI to scan
+every pinned dependency; a lockfile input for the action is planned.
 
 ## Finding types
 
 | Type | Meaning | Severity |
 |------|---------|----------|
-| `phantom_file` | A `.py` in the wheel whose content exists nowhere in the source | `medium`–`critical` per execution vectors |
+| `phantom_file` | A file in the artifact whose content exists nowhere in the source | `medium`–`critical` per execution vectors |
+| `phantom_span` | Code injected into (or modifying) a file that does exist in the source, with line numbers | `medium`–`critical` per execution vectors |
 | `suspicious_pth` | A `.pth` file shipped inside the wheel | `high`; `critical` if it has import lines |
 | `no_source_declared` | No source repo in the package metadata — unverifiable by construction | `high` |
 | `source_ref_not_found` | Repo declared, but no tag matches the version | `medium` |
@@ -123,14 +132,13 @@ result = scan("six", "1.16.0", registry.get("pypi"))
 print(result.to_dict())
 ```
 
-## Known limits (M1)
+## Known limits
 
 Explicitly **not supported yet** — the plugin architecture (`Ecosystem`/`Fetcher`/`SourceResolver`/`Normalizer` interfaces) is designed so these land without touching the core:
 
 - **Compiled/binary wheels and sdist-only releases** — reported as out of scope (exit 3). Needs build-step normalizers (M3).
-- **npm / JavaScript** — no minification/transpilation normalizers yet (M2/M3).
-- **Phantom *spans*** — code injected *into* a file that does exist in the source. M1 only detects whole phantom files; intra-file AST diffing is M2. A modified file will still show up as a phantom (its hash won't match), but without span-level localization.
-- **`phantom audit <lockfile>`** — registered but stubbed (M2).
+- **Built/minified JavaScript** — npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land (M3).
+- **Phantom spans for JS** — intra-file localization currently requires a Python AST; diverging JS files are reported whole.
 - **Non-GitHub forges** (GitLab, Codeberg…) — M3.
 - **Tag-based resolution only** — packages that publish from a commit without tagging that version yield `source_ref_not_found`.
 
