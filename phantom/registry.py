@@ -1,5 +1,5 @@
 """Registry of available ecosystems, instantiated per invocation and passed
-explicitly — no module-level mutable state."""
+explicitly, with no module-level mutable state."""
 
 from __future__ import annotations
 

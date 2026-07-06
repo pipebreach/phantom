@@ -13,7 +13,7 @@ def render(result: ScanResult) -> str:
     ]
     if not result.findings:
         lines.append(
-            f"no findings — {result.files_scanned} file(s) verified against source"
+            f"no findings; {result.files_scanned} file(s) verified against source"
         )
         return "\n".join(lines)
 

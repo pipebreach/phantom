@@ -1,6 +1,6 @@
 """Lockfile audit: scan every pinned package in a lockfile.
 
-Per-package failures never abort the run — they become entries with status
+Per-package failures never abort the run; they become entries with status
 ``error`` / ``out_of_scope`` so one unscannable dependency doesn't hide
 findings in the rest.
 """

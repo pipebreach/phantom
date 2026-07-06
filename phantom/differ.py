@@ -94,7 +94,7 @@ def _span_findings(
                 reason=(
                     f"{file.path} diverges from {source_file.path} in "
                     f"{source.repo_url}@{source.ref}, but no injected code was "
-                    f"found — only removed or reordered statements"
+                    f"found; only removed or reordered statements"
                 ),
             )
         ]

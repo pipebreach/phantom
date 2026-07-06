@@ -1,4 +1,4 @@
-"""phantom — detect divergence between a package's source and its published artifact.
+"""phantom: detect divergence between a package's source and its published artifact.
 
 Core entry point for library use::
 

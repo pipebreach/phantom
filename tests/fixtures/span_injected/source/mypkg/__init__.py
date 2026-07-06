@@ -1,4 +1,4 @@
-"""mypkg — fixture package for phantom tests."""
+"""mypkg: fixture package for phantom tests."""
 
 from mypkg.core import greet
 

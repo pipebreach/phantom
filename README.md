@@ -2,7 +2,7 @@
 
 **Detects divergence between a package's declared source and the artifact it actually publishes.**
 
-Part of the [pipebreach] research project. `phantom` compares *what a package declares* (its source repository at the tag matching the published version) against *what it ships* (the wheel on PyPI). Any code present in the artifact that does not exist in the source is a **phantom** — flagged regardless of whether it "looks malicious".
+Part of the [pipebreach] research project. `phantom` compares *what a package declares* (its source repository at the tag matching the published version) against *what it ships* (the wheel on PyPI). Any code present in the artifact that does not exist in the source is a **phantom**, flagged regardless of whether it "looks malicious".
 
 ## Threat model
 
@@ -13,7 +13,7 @@ Real-world incidents this class of tool catches:
 - **LiteLLM (March 2026):** a three-stage payload (credential theft, Kubernetes lateral movement, RCE backdoor) injected into the PyPI wheel post-build. The repo was clean.
 - **XZ Utils (CVE-2024-3094):** backdoor present in the distribution tarball but not in git.
 
-Malware scanners (GuardDog, Semgrep rules, etc.) look for *known-bad patterns*. `phantom` is **pattern-agnostic**: it doesn't care whether injected code looks bad — only that it isn't in the source. That catches clean, obfuscated, or never-before-seen injection. Reproducible-builds infrastructure (rebuilderd) solves this for OS distros; nothing equivalent exists for language ecosystems. That's the gap.
+Malware scanners (GuardDog, Semgrep rules, etc.) look for *known-bad patterns*. `phantom` is **pattern-agnostic**: it doesn't care whether injected code looks bad, only that it isn't in the source. That catches clean, obfuscated, or never-before-seen injection. Reproducible-builds infrastructure (rebuilderd) solves this for OS distros; nothing equivalent exists for language ecosystems. That's the gap.
 
 ## Quickstart
 
@@ -61,7 +61,7 @@ Downloads are cached on disk (`~/.cache/phantom` by default, `--cache-dir` to ov
 
 ## GitHub Action
 
-Package maintainers can verify their own releases right after publishing —
+Package maintainers can verify their own releases right after publishing;
 this catches a compromised build/publish pipeline (the LiteLLM case) even
 though the repo looks clean:
 
@@ -108,10 +108,10 @@ every pinned dependency; a lockfile input for the action is planned.
 
 | Type | Meaning | Severity |
 |------|---------|----------|
-| `phantom_file` | A file in the artifact whose content exists nowhere in the source | `medium`–`critical` per execution vectors |
-| `phantom_span` | Code injected into (or modifying) a file that does exist in the source, with line numbers | `medium`–`critical` per execution vectors |
+| `phantom_file` | A file in the artifact whose content exists nowhere in the source | `medium` to `critical` per execution vectors |
+| `phantom_span` | Code injected into (or modifying) a file that does exist in the source, with line numbers | `medium` to `critical` per execution vectors |
 | `suspicious_pth` | A `.pth` file shipped inside the wheel | `high`; `critical` if it has import lines |
-| `no_source_declared` | No source repo in the package metadata — unverifiable by construction | `high` |
+| `no_source_declared` | No source repo in the package metadata, unverifiable by construction | `high` |
 | `source_ref_not_found` | Repo declared, but no tag matches the version | `medium` |
 
 Every finding carries a `confidence` and a `reason`: phantom prefers saying "this is phantom but might be build-generated code" (e.g. `_version.py` from setuptools-scm gets `low` confidence) over false certainty.
@@ -134,13 +134,13 @@ print(result.to_dict())
 
 ## Known limits
 
-Explicitly **not supported yet** — the plugin architecture (`Ecosystem`/`Fetcher`/`SourceResolver`/`Normalizer` interfaces) is designed so these land without touching the core:
+Explicitly **not supported yet**; the plugin architecture (`Ecosystem`/`Fetcher`/`SourceResolver`/`Normalizer` interfaces) is designed so these land without touching the core:
 
-- **Compiled/binary wheels and sdist-only releases** — reported as out of scope (exit 3). Needs build-step normalizers (M3).
-- **Built/minified JavaScript** — npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land (M3).
-- **Phantom spans for JS** — intra-file localization currently requires a Python AST; diverging JS files are reported whole.
-- **Non-GitHub forges** (GitLab, Codeberg…) — M3.
-- **Tag-based resolution only** — packages that publish from a commit without tagging that version yield `source_ref_not_found`.
+- **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3). Needs build-step normalizers (M3).
+- **Built/minified JavaScript**: npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land (M3).
+- **Phantom spans for JS**: intra-file localization currently requires a Python AST; diverging JS files are reported whole.
+- **Non-GitHub forges** (GitLab, Codeberg, etc.): M3.
+- **Tag-based resolution only**: packages that publish from a commit without tagging that version yield `source_ref_not_found`.
 
 ## Development
 

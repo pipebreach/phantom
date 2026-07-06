@@ -3,7 +3,7 @@ in the source (phantom spans).
 
 Comparison is at top-level statement granularity: each statement of the
 artifact file is hashed (``ast.dump``) and looked up in the set of source
-statements. A miss is a span — "modified" when a same-named function/class
+statements. A miss is a span: "modified" when a same-named function/class
 exists in the source, "injected" otherwise. Deletions and reordering produce
 no spans; the differ reports that case separately.
 """
