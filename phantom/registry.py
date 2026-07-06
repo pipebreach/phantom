@@ -30,8 +30,12 @@ class Registry:
         return sorted(self._ecosystems)
 
 
-def build_default_registry(cache: DiskCache | None = None) -> Registry:
+def build_default_registry(
+    cache: DiskCache | None = None, index_url: str | None = None
+) -> Registry:
+    """Build the registry. ``index_url`` overrides the registry base URL of the
+    ecosystem being used (e.g. TestPyPI, or a private index)."""
     registry = Registry()
-    registry.register(PyPIEcosystem(cache))
-    registry.register(NpmEcosystem(cache))
+    registry.register(PyPIEcosystem(cache, index_url))
+    registry.register(NpmEcosystem(cache, index_url))
     return registry

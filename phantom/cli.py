@@ -83,6 +83,13 @@ def _add_common_options(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=f"download cache directory (default: {default_cache_dir()})",
     )
+    parser.add_argument(
+        "--index-url",
+        default=None,
+        metavar="URL",
+        help="override the registry base URL (e.g. https://test.pypi.org/pypi "
+        "or a private index)",
+    )
 
 
 def run(argv: list[str] | None = None, registry: Registry | None = None) -> int:
@@ -91,7 +98,7 @@ def run(argv: list[str] | None = None, registry: Registry | None = None) -> int:
 
     if registry is None:
         cache = DiskCache(args.cache_dir or default_cache_dir())
-        registry = build_default_registry(cache)
+        registry = build_default_registry(cache, args.index_url)
 
     if args.command == "audit":
         return _run_audit(args, registry)
