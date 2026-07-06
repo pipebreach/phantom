@@ -77,10 +77,17 @@ class NoSourceResolver(SourceResolver):
 class FakeEcosystem(Ecosystem):
     name = "pypi"
 
-    def __init__(self, fetcher: Fetcher, source_resolver: SourceResolver):
+    def __init__(
+        self,
+        fetcher: Fetcher,
+        source_resolver: SourceResolver,
+        normalizers: list[Normalizer] | None = None,
+        name: str = "pypi",
+    ):
+        self.name = name
         self._fetcher = fetcher
         self._source_resolver = source_resolver
-        self._normalizers: list[Normalizer] = [PythonASTNormalizer()]
+        self._normalizers = normalizers or [PythonASTNormalizer()]
 
     @property
     def fetcher(self) -> Fetcher:
@@ -106,6 +113,14 @@ def benign_ecosystem() -> FakeEcosystem:
 @pytest.fixture
 def injected_ecosystem() -> FakeEcosystem:
     root = FIXTURES / "injected"
+    return FakeEcosystem(
+        FakeFetcher(root / "wheel"), FakeSourceResolver(root / "source")
+    )
+
+
+@pytest.fixture
+def span_injected_ecosystem() -> FakeEcosystem:
+    root = FIXTURES / "span_injected"
     return FakeEcosystem(
         FakeFetcher(root / "wheel"), FakeSourceResolver(root / "source")
     )

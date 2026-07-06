@@ -4,24 +4,25 @@ from __future__ import annotations
 
 import pytest
 
-from phantom.ecosystems.pypi import PyPIFetcher, PyPISourceResolver, _parse_github_repo
+from phantom.ecosystems.github import parse_repo_url
+from phantom.ecosystems.pypi import PyPIFetcher, PyPISourceResolver
 
 
 def test_parse_github_repo_variants():
-    assert _parse_github_repo("https://github.com/BerriAI/litellm") == (
+    assert parse_repo_url("https://github.com/BerriAI/litellm") == (
         "BerriAI",
         "litellm",
     )
-    assert _parse_github_repo("https://github.com/psf/requests.git") == (
+    assert parse_repo_url("https://github.com/psf/requests.git") == (
         "psf",
         "requests",
     )
-    assert _parse_github_repo("https://www.github.com/psf/requests/") == (
+    assert parse_repo_url("https://www.github.com/psf/requests/") == (
         "psf",
         "requests",
     )
-    assert _parse_github_repo("https://gitlab.com/owner/repo") is None
-    assert _parse_github_repo("https://example.com") is None
+    assert parse_repo_url("https://gitlab.com/owner/repo") is None
+    assert parse_repo_url("https://example.com") is None
 
 
 def test_find_github_repo_prefers_source_over_homepage():

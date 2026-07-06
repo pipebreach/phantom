@@ -41,3 +41,13 @@ def test_scan_is_deterministic_across_runs(pypi):
     first = core.scan("six", "1.16.0", pypi).to_dict()
     second = core.scan("six", "1.16.0", pypi).to_dict()
     assert first == second
+
+
+def test_known_clean_npm_package(tmp_path):
+    npm = build_default_registry(DiskCache(tmp_path / "cache")).get("npm")
+    # mime-db publishes its files verbatim and tags releases as v{version}.
+    result = core.scan("mime-db", "1.52.0", npm)
+    assert result.source_ref == "v1.52.0"
+    assert not any(
+        f.severity in (Severity.HIGH, Severity.CRITICAL) for f in result.findings
+    )

@@ -19,7 +19,16 @@ TOP_LEVEL_KEYS = {
     "findings",
     "summary",
 }
-FINDING_KEYS = {"type", "path", "severity", "confidence", "reason", "execution_vectors"}
+FINDING_KEYS = {
+    "type",
+    "path",
+    "severity",
+    "confidence",
+    "reason",
+    "execution_vectors",
+    "start_line",
+    "end_line",
+}
 SUMMARY_KEYS = {"files_scanned", "total_findings", "phantom_files", "highest_severity"}
 
 

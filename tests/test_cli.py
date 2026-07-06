@@ -40,14 +40,6 @@ def test_exit_2_on_bad_spec(capsys):
     assert "invalid spec" in capsys.readouterr().err
 
 
-def test_exit_2_on_audit_stub(tmp_path, capsys):
-    lockfile = tmp_path / "requirements.txt"
-    lockfile.write_text("mypkg==1.0.0\n")
-    code = cli.run(["audit", str(lockfile)])
-    assert code == 2
-    assert "M2" in capsys.readouterr().err
-
-
 def test_exit_3_on_out_of_scope(capsys):
     ecosystem = FakeEcosystem(
         OutOfScopeFetcher(), FakeSourceResolver(FIXTURES / "benign" / "source")
