@@ -78,7 +78,7 @@ jobs:
     permissions:
       security-events: write    # for SARIF upload
     steps:
-      - uses: pipebreach/phantom@5be67a3e8c73f18273f4ee6bb944ba2dec059c59 # v0.1.0
+      - uses: pipebreach/phantom@493af6f8aa33a4c8b1a36b620b64b62ed1007bb5 # v0.2.0
         id: scan
         with:
           spec: mypkg==1.2.3    # e.g. derived from the release tag
