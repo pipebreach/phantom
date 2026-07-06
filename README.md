@@ -68,11 +68,11 @@ jobs:
     permissions:
       security-events: write    # for SARIF upload
     steps:
-      - uses: pipebreach/phantom@main
+      - uses: pipebreach/phantom@main # pin to a release commit SHA
         id: scan
         with:
           spec: mypkg==1.2.3    # e.g. derived from the release tag
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@411c4c9a36b3fca4d674f06b6396b2c6d23522c6 # v3.36.3
         if: always() && hashFiles('phantom-results.sarif') != ''
         with:
           sarif_file: phantom-results.sarif
