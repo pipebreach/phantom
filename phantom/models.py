@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 class Severity(str, Enum):
@@ -33,6 +33,7 @@ class Confidence(str, Enum):
 
 class FindingType(str, Enum):
     PHANTOM_FILE = "phantom_file"
+    PHANTOM_SPAN = "phantom_span"
     SUSPICIOUS_PTH = "suspicious_pth"
     NO_SOURCE_DECLARED = "no_source_declared"
     SOURCE_REF_NOT_FOUND = "source_ref_not_found"
@@ -94,6 +95,8 @@ class Finding:
     confidence: Confidence
     reason: str
     execution_vectors: list[str] = field(default_factory=list)
+    start_line: int | None = None
+    end_line: int | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -103,6 +106,8 @@ class Finding:
             "confidence": self.confidence.value,
             "reason": self.reason,
             "execution_vectors": list(self.execution_vectors),
+            "start_line": self.start_line,
+            "end_line": self.end_line,
         }
 
 
@@ -126,6 +131,12 @@ class ScanResult:
             return None
         return max((f.severity for f in self.findings), key=lambda s: s.rank)
 
+    @property
+    def has_blocking_findings(self) -> bool:
+        return any(
+            f.severity in (Severity.HIGH, Severity.CRITICAL) for f in self.findings
+        )
+
     def to_dict(self) -> dict:
         highest = self.highest_severity
         return {
@@ -142,6 +153,74 @@ class ScanResult:
                 "total_findings": len(self.findings),
                 "phantom_files": sum(
                     1 for f in self.findings if f.type == FindingType.PHANTOM_FILE
+                ),
+                "highest_severity": highest.value if highest else None,
+            },
+        }
+
+
+class AuditStatus(str, Enum):
+    """Per-package outcome inside an audit run."""
+
+    SCANNED = "scanned"
+    OUT_OF_SCOPE = "out_of_scope"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+@dataclass
+class AuditEntry:
+    package: str
+    version: str
+    status: AuditStatus
+    result: ScanResult | None = None
+    detail: str | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "package": self.package,
+            "version": self.version,
+            "status": self.status.value,
+            "result": self.result.to_dict() if self.result else None,
+            "detail": self.detail,
+        }
+
+
+@dataclass
+class AuditResult:
+    """Outcome of scanning every pinned package in a lockfile."""
+
+    lockfile: str
+    ecosystem: str
+    entries: list[AuditEntry]
+    schema_version: str = SCHEMA_VERSION
+
+    @property
+    def highest_severity(self) -> Severity | None:
+        severities = [
+            e.result.highest_severity
+            for e in self.entries
+            if e.result and e.result.highest_severity
+        ]
+        if not severities:
+            return None
+        return max(severities, key=lambda s: s.rank)
+
+    def to_dict(self) -> dict:
+        highest = self.highest_severity
+        by_status = {status.value: 0 for status in AuditStatus}
+        for entry in self.entries:
+            by_status[entry.status.value] += 1
+        return {
+            "schema_version": self.schema_version,
+            "lockfile": self.lockfile,
+            "ecosystem": self.ecosystem,
+            "entries": [e.to_dict() for e in self.entries],
+            "summary": {
+                "packages": len(self.entries),
+                **by_status,
+                "packages_with_findings": sum(
+                    1 for e in self.entries if e.result and e.result.findings
                 ),
                 "highest_severity": highest.value if highest else None,
             },
