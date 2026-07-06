@@ -20,7 +20,9 @@ Malware scanners (GuardDog, Semgrep rules, etc.) look for *known-bad patterns*. 
 Requires Python 3.11+. Zero runtime dependencies (stdlib only, by design).
 
 ```bash
-pip install -e .
+pip install phantom-scan
+# or, without installing:
+uvx phantom-scan scan requests==2.31.0
 
 # Scan a single package version
 phantom scan requests==2.31.0
@@ -68,7 +70,7 @@ jobs:
     permissions:
       security-events: write    # for SARIF upload
     steps:
-      - uses: pipebreach/phantom@main # pin to a release commit SHA
+      - uses: pipebreach/phantom@5be67a3e8c73f18273f4ee6bb944ba2dec059c59 # v0.1.0
         id: scan
         with:
           spec: mypkg==1.2.3    # e.g. derived from the release tag
