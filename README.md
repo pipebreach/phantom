@@ -35,12 +35,15 @@ phantom audit poetry.lock
 # Machine-readable output
 phantom scan requests==2.31.0 --json
 phantom scan requests==2.31.0 --sarif   # for GitHub code scanning
+
+# Scan against a different index (TestPyPI, a private mirror)
+phantom scan mypkg==1.0.0 --index-url https://test.pypi.org/pypi
 ```
 
 What a scan does:
 
 1. Downloads the pure-Python wheel from the PyPI JSON API.
-2. Resolves the source repo from the package metadata (`project_urls`) and finds the tag matching the version (`v{ver}`, `{ver}`, `release-{ver}`).
+2. Resolves the source repo from the package metadata (`project_urls`) on GitHub or GitLab, and finds the tag matching the version (`v{ver}`, `{ver}`, `release-{ver}`).
 3. Computes an **AST-normalized hash** of every `.py` file on both sides (comments/whitespace/formatting don't count) and flags every wheel file whose content exists nowhere in the source.
 4. When a diverging file *does* exist in the source, runs an intra-file AST diff to localize the injected or modified statements (**phantom spans**, reported with line numbers).
 5. Grades each phantom by its execution vectors (subprocess, network, `exec`/`eval`, `os.environ` access). Reading data + network egress = `critical` (exfiltration shape).
@@ -137,9 +140,9 @@ print(result.to_dict())
 Explicitly **not supported yet**; the plugin architecture (`Ecosystem`/`Fetcher`/`SourceResolver`/`Normalizer` interfaces) is designed so these land without touching the core:
 
 - **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3). Needs build-step normalizers (M3).
-- **Built/minified JavaScript**: npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land (M3).
+- **Built/minified JavaScript**: npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land.
 - **Phantom spans for JS**: intra-file localization currently requires a Python AST; diverging JS files are reported whole.
-- **Non-GitHub forges** (GitLab, Codeberg, etc.): M3.
+- **Forges other than GitHub and GitLab** (Codeberg, self-hosted, etc.): not resolved yet.
 - **Tag-based resolution only**: packages that publish from a commit without tagging that version yield `source_ref_not_found`.
 
 ## Development
