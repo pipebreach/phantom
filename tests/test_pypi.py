@@ -4,25 +4,19 @@ from __future__ import annotations
 
 import pytest
 
-from phantom.ecosystems.github import parse_repo_url
+from phantom.ecosystems import forges
 from phantom.ecosystems.pypi import PyPIFetcher, PyPISourceResolver
 
 
+def _resolve(metadata: dict):
+    return forges.find_repo(PyPISourceResolver._candidate_urls(metadata))
+
+
 def test_parse_github_repo_variants():
-    assert parse_repo_url("https://github.com/BerriAI/litellm") == (
-        "BerriAI",
-        "litellm",
-    )
-    assert parse_repo_url("https://github.com/psf/requests.git") == (
-        "psf",
-        "requests",
-    )
-    assert parse_repo_url("https://www.github.com/psf/requests/") == (
-        "psf",
-        "requests",
-    )
-    assert parse_repo_url("https://gitlab.com/owner/repo") is None
-    assert parse_repo_url("https://example.com") is None
+    assert forges.parse_repo("https://github.com/BerriAI/litellm").owner == "BerriAI"
+    assert forges.parse_repo("https://github.com/psf/requests.git").name == "requests"
+    assert forges.parse_repo("https://www.github.com/psf/requests/").name == "requests"
+    assert forges.parse_repo("https://example.com") is None
 
 
 def test_find_github_repo_prefers_source_over_homepage():
@@ -32,7 +26,8 @@ def test_find_github_repo_prefers_source_over_homepage():
             "Source": "https://github.com/right/repo",
         }
     }
-    assert PyPISourceResolver._find_github_repo(metadata) == ("right", "repo")
+    repo = _resolve(metadata)
+    assert (repo.owner, repo.name) == ("right", "repo")
 
 
 def test_find_github_repo_falls_back_to_home_page():
@@ -40,11 +35,19 @@ def test_find_github_repo_falls_back_to_home_page():
         "project_urls": {"Docs": "https://example.com"},
         "home_page": "https://github.com/owner/repo",
     }
-    assert PyPISourceResolver._find_github_repo(metadata) == ("owner", "repo")
+    repo = _resolve(metadata)
+    assert (repo.owner, repo.name) == ("owner", "repo")
 
 
 def test_find_github_repo_none_when_absent():
-    assert PyPISourceResolver._find_github_repo({"project_urls": None}) is None
+    assert _resolve({"project_urls": None}) is None
+
+
+def test_index_url_override():
+    default = PyPIFetcher()
+    assert default.index_url == "https://pypi.org/pypi"
+    custom = PyPIFetcher(index_url="https://test.pypi.org/pypi/")
+    assert custom.index_url == "https://test.pypi.org/pypi"
 
 
 def test_pick_pure_wheel():

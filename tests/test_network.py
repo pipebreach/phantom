@@ -51,3 +51,12 @@ def test_known_clean_npm_package(tmp_path):
     assert not any(
         f.severity in (Severity.HIGH, Severity.CRITICAL) for f in result.findings
     )
+
+
+def test_gitlab_tag_tree_fetch():
+    from phantom.ecosystems import forges
+
+    repo = forges.parse_repo("https://gitlab.com/gitlab-org/gitlab-svgs")
+    tree = repo.forge.fetch_tag_tree(repo, "3.146.0", None)
+    assert tree.ref == "v3.146.0"
+    assert tree.files

@@ -8,9 +8,10 @@ import tarfile
 import pytest
 
 from phantom import cli, core
+from phantom.ecosystems import forges
 from phantom.ecosystems.base import Fetcher, SourceResolver
-from phantom.ecosystems.github import parse_repo_url, untar
-from phantom.ecosystems.npm import JS_EXTENSIONS, NpmSourceResolver
+from phantom.ecosystems.forges import untar
+from phantom.ecosystems.npm import JS_EXTENSIONS, NpmFetcher, NpmSourceResolver
 from phantom.models import (
     Artifact,
     FileEntry,
@@ -25,6 +26,11 @@ from phantom.risk import assess
 from conftest import FakeEcosystem
 
 
+def _owner_name(url):
+    repo = forges.parse_repo(url)
+    return (repo.owner, repo.name) if repo else None
+
+
 @pytest.mark.parametrize(
     ("url", "expected"),
     [
@@ -35,19 +41,46 @@ from conftest import FakeEcosystem
         ("github:o/r", ("o", "r")),
         ("o/r", ("o", "r")),
         ("https://github.com/o/r", ("o", "r")),
-        ("https://gitlab.com/o/r", None),
     ],
 )
 def test_parse_repo_url_npm_forms(url, expected):
-    assert parse_repo_url(url) == expected
+    assert _owner_name(url) == expected
+
+
+def _resolve(metadata: dict):
+    repo = forges.find_repo(NpmSourceResolver._candidate_urls(metadata))
+    return (repo.owner, repo.name) if repo else None
 
 
 def test_find_github_repo_from_manifest():
-    find = NpmSourceResolver._find_github_repo
-    assert find({"repository": {"type": "git", "url": "git+https://github.com/o/r.git"}}) == ("o", "r")
-    assert find({"repository": "github:o/r"}) == ("o", "r")
-    assert find({"homepage": "https://github.com/o/r#readme"}) == ("o", "r")
-    assert find({"repository": None}) is None
+    assert _resolve(
+        {"repository": {"type": "git", "url": "git+https://github.com/o/r.git"}}
+    ) == ("o", "r")
+    assert _resolve({"repository": "github:o/r"}) == ("o", "r")
+    assert _resolve({"homepage": "https://github.com/o/r#readme"}) == ("o", "r")
+    assert _resolve({"repository": None}) is None
+
+
+def test_gitlab_repo_parsing_and_archive_url():
+    repo = forges.parse_repo("https://gitlab.com/group/project")
+    assert (repo.host, repo.owner, repo.name) == ("gitlab.com", "group", "project")
+    assert repo.url == "https://gitlab.com/group/project"
+    archive = repo.forge._archive_url(repo, "v1.0.0")
+    assert "gitlab.com/api/v4/projects/group%2Fproject" in archive
+    assert archive.endswith("archive.tar.gz?sha=v1.0.0")
+
+
+def test_gitlab_subgroup_parsing():
+    repo = forges.parse_repo("https://gitlab.com/group/subgroup/project.git")
+    assert (repo.owner, repo.name) == ("group/subgroup", "project")
+
+
+def test_npm_registry_url_override():
+    assert NpmFetcher().registry_url == "https://registry.npmjs.org"
+    assert (
+        NpmFetcher(registry_url="https://npm.internal/registry/").registry_url
+        == "https://npm.internal/registry"
+    )
 
 
 def test_untar_strips_top_level_directory():
