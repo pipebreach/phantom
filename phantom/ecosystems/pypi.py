@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import io
 import json
-import re
-import tarfile
 import zipfile
 
 from phantom.cache import DiskCache, http_get
+from phantom.ecosystems import github
 from phantom.ecosystems.base import Ecosystem, Fetcher, SourceResolver
 from phantom.errors import FetchError, NotFoundError, OutOfScopeError
 from phantom.models import Artifact, FileEntry, FindingType, NoSource, SourceTree
@@ -17,27 +16,9 @@ from phantom.normalizers.base import Normalizer
 from phantom.normalizers.python_ast import PythonASTNormalizer
 
 PYPI_JSON_URL = "https://pypi.org/pypi/{pkg}/{version}/json"
-# codeload serves public tag tarballs without the API rate limit.
-GITHUB_TARBALL_URL = "https://codeload.github.com/{owner}/{repo}/tar.gz/refs/tags/{tag}"
-
-# Tag conventions tried in order.
-TAG_PATTERNS = ("v{version}", "{version}", "release-{version}")
 
 # project_urls keys checked in priority order.
 _SOURCE_URL_KEYS = ("source", "source code", "repository", "code", "github", "homepage")
-
-_GITHUB_RE = re.compile(
-    r"https?://(?:www\.)?github\.com/(?P<owner>[\w.-]+)/(?P<repo>[\w.-]+)"
-)
-
-
-def _parse_github_repo(url: str) -> tuple[str, str] | None:
-    match = _GITHUB_RE.match(url.strip())
-    if not match:
-        return None
-    owner = match.group("owner")
-    repo = match.group("repo").removesuffix(".git")
-    return owner, repo
 
 
 class PyPIFetcher(Fetcher):
@@ -85,8 +66,8 @@ class PyPIFetcher(Fetcher):
         else:
             detail = "no distribution files found"
         return (
-            f"{pkg}=={version}: {detail}. M1 only supports pure-Python wheels "
-            f"(*-none-any.whl)."
+            f"{pkg}=={version}: {detail}. Only pure-Python wheels "
+            f"(*-none-any.whl) are supported."
         )
 
     @staticmethod
@@ -121,26 +102,16 @@ class PyPISourceResolver(SourceResolver):
                 ),
             )
         owner, name = repo
-        repo_url = f"https://github.com/{owner}/{name}"
-        tried = []
-        for pattern in TAG_PATTERNS:
-            tag = pattern.format(version=version)
-            tried.append(tag)
-            try:
-                data = http_get(
-                    GITHUB_TARBALL_URL.format(owner=owner, repo=name, tag=tag),
-                    self.cache,
-                )
-            except NotFoundError:
-                continue
-            return SourceTree(repo_url=repo_url, ref=tag, files=_untar(data))
+        tree = github.fetch_tag_tree(owner, name, version, self.cache)
+        if isinstance(tree, SourceTree):
+            return tree
         return NoSource(
             finding_type=FindingType.SOURCE_REF_NOT_FOUND,
             detail=(
-                f"no tag matching version {version} found in {repo_url} "
-                f"(tried: {', '.join(tried)})"
+                f"no tag matching version {version} found in "
+                f"https://github.com/{owner}/{name} (tried: {', '.join(tree)})"
             ),
-            repo_url=repo_url,
+            repo_url=f"https://github.com/{owner}/{name}",
         )
 
     @staticmethod
@@ -157,29 +128,10 @@ class PyPISourceResolver(SourceResolver):
         if metadata.get("home_page"):
             candidates.append(metadata["home_page"])
         for url in candidates:
-            repo = _parse_github_repo(url)
+            repo = github.parse_repo_url(url)
             if repo is not None:
                 return repo
         return None
-
-
-def _untar(data: bytes) -> list[FileEntry]:
-    """Extract a tarball in memory, stripping GitHub's top-level directory."""
-    try:
-        archive = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
-    except tarfile.TarError as exc:
-        raise FetchError(f"downloaded source tarball is invalid: {exc}") from exc
-    entries = []
-    with archive:
-        for member in archive.getmembers():
-            if not member.isfile():
-                continue
-            path = member.name.split("/", 1)[1] if "/" in member.name else member.name
-            handle = archive.extractfile(member)
-            if handle is None:
-                continue
-            entries.append(FileEntry(path=path, data=handle.read()))
-    return entries
 
 
 class PyPIEcosystem(Ecosystem):

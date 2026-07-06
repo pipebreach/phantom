@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from phantom.cache import DiskCache
 from phantom.ecosystems.base import Ecosystem
+from phantom.ecosystems.npm import NpmEcosystem
 from phantom.ecosystems.pypi import PyPIEcosystem
 from phantom.errors import PhantomError
 
@@ -32,4 +33,5 @@ class Registry:
 def build_default_registry(cache: DiskCache | None = None) -> Registry:
     registry = Registry()
     registry.register(PyPIEcosystem(cache))
+    registry.register(NpmEcosystem(cache))
     return registry

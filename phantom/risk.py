@@ -1,13 +1,15 @@
 """Execution-vector analysis for phantom files. Detects capabilities
 (env-read, network, process, dynamic-code), not known-bad patterns.
 
-Severity: env-read + network -> critical (exfiltration shape); any single
-vector -> high; no vector -> medium.
+Python is analyzed via AST walk; JavaScript via capability regexes (an AST
+parser would require a heavy dependency). Severity: env-read + network ->
+critical (exfiltration shape); any single vector -> high; no vector -> medium.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 
 from phantom.models import FileEntry, Severity
@@ -35,8 +37,49 @@ class RiskAssessment:
     detail: str
 
 
+_JS_VECTOR_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(r"""(?:require\(\s*|from\s+|import\s+.*?)['"](?:node:)?child_process['"]"""),
+        "process:child_process",
+    ),
+    (
+        re.compile(r"""(?:require\(\s*|from\s+|import\s+.*?)['"](?:node:)?(?:https?|net|dgram|tls|dns)['"]"""),
+        "network:node-net-module",
+    ),
+    (re.compile(r"\bfetch\s*\("), "network:fetch"),
+    (re.compile(r"\bnew\s+XMLHttpRequest\b"), "network:XMLHttpRequest"),
+    (re.compile(r"\bnew\s+WebSocket\b"), "network:WebSocket"),
+    (re.compile(r"\bprocess\.env\b"), "env-read:process.env"),
+    (re.compile(r"\beval\s*\("), "dynamic-code:eval"),
+    (re.compile(r"\bnew\s+Function\s*\("), "dynamic-code:new-Function"),
+)
+
+
 def assess(file: FileEntry) -> RiskAssessment:
-    """Grade a phantom Python file by its execution vectors."""
+    """Grade a phantom file by its execution vectors."""
+    if file.path.endswith((".js", ".mjs", ".cjs")):
+        return _assess_js(file)
+    return _assess_python(file)
+
+
+def _assess_js(file: FileEntry) -> RiskAssessment:
+    text = file.data.decode("utf-8", errors="replace")
+    vectors: list[str] = []
+    for pattern, vector in _JS_VECTOR_PATTERNS:
+        if vector not in vectors and pattern.search(text):
+            vectors.append(vector)
+    severity = _classify(vectors)
+    detail = (
+        "execution vectors detected: " + ", ".join(vectors)
+        if vectors
+        else "no obvious execution or exfiltration vector detected"
+    )
+    if severity == Severity.CRITICAL:
+        detail = "reads local data AND has network egress (exfiltration shape); " + detail
+    return RiskAssessment(severity=severity, vectors=vectors, detail=detail)
+
+
+def _assess_python(file: FileEntry) -> RiskAssessment:
     text = file.data.decode("utf-8", errors="replace")
     try:
         tree = ast.parse(text)
