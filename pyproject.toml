@@ -9,8 +9,12 @@ description = "Detect divergence between a package's declared source and its pub
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-# Zero runtime dependencies by design (NFR-8): stdlib only.
+# Zero runtime dependencies by design: stdlib only.
 dependencies = []
+
+[project.urls]
+Source = "https://github.com/pipebreach/phantom"
+Repository = "https://github.com/pipebreach/phantom"
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
