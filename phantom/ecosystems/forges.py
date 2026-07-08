@@ -24,6 +24,30 @@ from phantom.models import FileEntry, SourceTree
 TAG_PATTERNS = ("v{version}", "{version}", "release-{version}")
 
 
+def _version_variants(version: str) -> list[str]:
+    """Alternate spellings of a version to probe as tags.
+
+    Handles date-based CalVer where the published version drops zero-padding
+    but the git tag keeps it (or vice versa), e.g. certifi ships ``2026.6.17``
+    but tags ``2026.06.17``. Only applies to numeric dotted versions whose
+    first segment is a 4-digit year, so semver probing is unaffected.
+    """
+    variants = [version]
+    segments = version.split(".")
+    if (
+        len(segments) >= 2
+        and len(segments[0]) == 4
+        and all(segment.isdigit() for segment in segments)
+    ):
+        for variant in (
+            ".".join(segment.zfill(2) for segment in segments),
+            ".".join(str(int(segment)) for segment in segments),
+        ):
+            if variant not in variants:
+                variants.append(variant)
+    return variants
+
+
 def _normalize_url(url: str) -> str:
     """Reduce the git/ssh/shorthand URL forms found in metadata to https."""
     url = url.strip().removeprefix("git+")
@@ -62,14 +86,17 @@ class Forge(ABC):
         none matched (for the ``SOURCE_REF_NOT_FOUND`` finding detail).
         """
         tried = []
-        for pattern in TAG_PATTERNS:
-            tag = pattern.format(version=version)
-            tried.append(tag)
-            try:
-                data = http_get(self._archive_url(repo, tag), cache)
-            except NotFoundError:
-                continue
-            return SourceTree(repo_url=repo.url, ref=tag, files=untar(data))
+        for variant in _version_variants(version):
+            for pattern in TAG_PATTERNS:
+                tag = pattern.format(version=variant)
+                if tag in tried:
+                    continue
+                tried.append(tag)
+                try:
+                    data = http_get(self._archive_url(repo, tag), cache)
+                except NotFoundError:
+                    continue
+                return SourceTree(repo_url=repo.url, ref=tag, files=untar(data))
         return tried
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from phantom.ecosystems import forges
-from phantom.ecosystems.forges import GitHubForge, GitLabForge
+from phantom.ecosystems.forges import GitHubForge, GitLabForge, _version_variants
 
 
 @pytest.mark.parametrize(
@@ -41,6 +41,19 @@ def test_find_repo_returns_first_recognized():
     )
     assert (repo.host, repo.owner, repo.name) == ("github.com", "o", "r")
     assert forges.find_repo(["https://example.com"]) is None
+
+
+def test_version_variants_pads_calver_dates():
+    # certifi ships 2026.6.17 but tags 2026.06.17.
+    assert _version_variants("2026.6.17") == ["2026.6.17", "2026.06.17"]
+    # padded input also probes the unpadded tag.
+    assert _version_variants("2026.06.17") == ["2026.06.17", "2026.6.17"]
+
+
+def test_version_variants_leaves_semver_untouched():
+    assert _version_variants("1.2.3") == ["1.2.3"]
+    assert _version_variants("2.31.0") == ["2.31.0"]
+    assert _version_variants("2024.1") == ["2024.1", "2024.01"]
 
 
 def test_archive_urls():

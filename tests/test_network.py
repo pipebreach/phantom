@@ -60,3 +60,10 @@ def test_gitlab_tag_tree_fetch():
     tree = repo.forge.fetch_tag_tree(repo, "3.146.0", None)
     assert tree.ref == "v3.146.0"
     assert tree.files
+
+
+def test_calver_date_padding_resolves(pypi):
+    # certifi ships 2026.6.17 but tags 2026.06.17; the variant probe finds it.
+    result = core.scan("certifi", "2026.6.17", pypi)
+    assert result.source_ref == "2026.06.17"
+    assert not result.findings
