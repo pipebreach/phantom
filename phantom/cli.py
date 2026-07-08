@@ -50,6 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
         "spec",
         help="package spec: <pkg>==<version> (pypi) or <pkg>@<version> (npm)",
     )
+    scan.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="build a wheel from the published sdist and diff it against the "
+        "published wheel (pypi only). EXECUTES the package build; run only in a "
+        "disposable, network-restricted environment.",
+    )
     _add_common_options(scan)
 
     audit = subparsers.add_parser(
@@ -114,7 +121,17 @@ def _run_scan(args: argparse.Namespace, registry: Registry) -> int:
 
     try:
         ecosystem = registry.get(args.ecosystem)
-        result = core.scan(package, version, ecosystem)
+        if args.rebuild:
+            outcome = core.rebuild(package, version, ecosystem)
+            result = outcome.result
+            if not outcome.network_denied:
+                print(
+                    "warning: could not deny network to the build (unshare "
+                    "unavailable); run in a disposable environment",
+                    file=sys.stderr,
+                )
+        else:
+            result = core.scan(package, version, ecosystem)
     except OutOfScopeError as exc:
         print(f"out of scope: {exc}", file=sys.stderr)
         return EXIT_OUT_OF_SCOPE

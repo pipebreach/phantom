@@ -3,8 +3,11 @@ only, holds no state."""
 
 from __future__ import annotations
 
-from phantom import differ
+from dataclasses import dataclass
+
+from phantom import differ, rebuild as rebuild_mod
 from phantom.ecosystems.base import Ecosystem
+from phantom.errors import OutOfScopeError, PhantomError
 from phantom.models import (
     Confidence,
     Finding,
@@ -13,6 +16,7 @@ from phantom.models import (
     ScanResult,
     Severity,
     SourceStatus,
+    SourceTree,
 )
 
 
@@ -47,6 +51,53 @@ def exit_code_for(result: ScanResult) -> int:
     if any(f.severity in (Severity.HIGH, Severity.CRITICAL) for f in result.findings):
         return 1
     return 0
+
+
+@dataclass
+class RebuildOutcome:
+    result: ScanResult
+    network_denied: bool
+
+
+def rebuild(package: str, version: str, ecosystem: Ecosystem) -> RebuildOutcome:
+    """Build a wheel from the published sdist and diff it against the published
+    wheel. A finding means the published wheel contains code the sdist does not
+    build, i.e. it was tampered after the source was cut. PyPI only.
+
+    WARNING: this executes the package's build. Run only in a disposable,
+    network-restricted environment.
+    """
+    fetcher = ecosystem.fetcher
+    if not hasattr(fetcher, "fetch_sdist"):
+        raise PhantomError(
+            f"--rebuild is not supported for ecosystem {ecosystem.name!r}"
+        )
+    published = fetcher.fetch_artifact(package, version)
+    sdist = fetcher.fetch_sdist(package, version)
+    if sdist is None:
+        raise OutOfScopeError(
+            f"{package}=={version}: no sdist published to rebuild from"
+        )
+
+    built = rebuild_mod.rebuild_wheel_from_sdist(sdist)
+    if built.files is None:
+        raise PhantomError(f"rebuild failed: {built.detail}")
+
+    rebuilt_tree = SourceTree(
+        repo_url="local rebuild from sdist", ref="rebuilt", files=built.files
+    )
+    outcome = differ.diff(published, rebuilt_tree, ecosystem.normalizers)
+    result = ScanResult(
+        package=package,
+        version=version,
+        ecosystem=ecosystem.name,
+        source_status=SourceStatus.RESOLVED,
+        source_repo="local rebuild from sdist",
+        source_ref="rebuilt",
+        findings=outcome.findings,
+        files_scanned=outcome.files_scanned,
+    )
+    return RebuildOutcome(result=result, network_denied=built.network_denied)
 
 
 def _no_source_result(

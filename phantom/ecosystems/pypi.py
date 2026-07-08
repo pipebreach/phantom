@@ -50,6 +50,18 @@ class PyPIFetcher(Fetcher):
             metadata=metadata.get("info", {}),
         )
 
+    def fetch_sdist(self, pkg: str, version: str) -> bytes | None:
+        """Download the sdist tarball for a version, or None if none is
+        published. Used by assisted rebuild."""
+        url = f"{self.index_url}/{pkg}/{version}/json"
+        metadata = json.loads(http_get(url, self.cache))
+        for release in metadata.get("urls", []):
+            if release.get("packagetype") == "sdist" and release.get(
+                "filename", ""
+            ).endswith(".tar.gz"):
+                return http_get(release["url"], self.cache)
+        return None
+
     @staticmethod
     def _pick_pure_wheel(releases: list[dict]) -> dict | None:
         for release in releases:
