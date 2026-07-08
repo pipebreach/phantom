@@ -17,7 +17,9 @@ Source = "https://github.com/pipebreach/phantom"
 Repository = "https://github.com/pipebreach/phantom"
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "build>=1"]
+# setuptools + wheel back the synthetic sdist that the rebuild test builds
+# with --no-isolation (modern venvs no longer ship them by default).
+dev = ["pytest>=8", "build>=1", "setuptools>=68", "wheel>=0.40"]
 
 [project.scripts]
 phantom = "phantom.cli:main"
