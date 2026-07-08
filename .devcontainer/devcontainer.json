@@ -1,0 +1,11 @@
+{
+  "name": "phantom rebuild sandbox",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "onCreateCommand": "pip install phantom-scan build setuptools wheel hatchling flit-core poetry-core",
+  "runArgs": ["--cap-add=SYS_ADMIN"],
+  "customizations": {
+    "codespaces": {
+      "openFiles": ["REBUILD.md"]
+    }
+  }
+}
