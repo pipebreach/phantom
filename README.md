@@ -143,7 +143,7 @@ Explicitly **not supported yet**; the plugin architecture (`Ecosystem`/`Fetcher`
 - **Built/minified JavaScript**: npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land.
 - **Phantom spans for JS**: intra-file localization currently requires a Python AST; diverging JS files are reported whole.
 - **Forges other than GitHub and GitLab** (Codeberg, self-hosted, etc.): not resolved yet.
-- **Tag-based resolution only**: packages that publish from a commit without tagging that version yield `source_ref_not_found`.
+- **Tag-based resolution only**: packages that publish from a commit without tagging that version yield `source_ref_not_found`. Common tag conventions (`v`-prefix, CalVer date zero-padding) are probed; unusual schemes are not.
 
 ## Development
 
