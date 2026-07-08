@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from phantom import risk, spans
+from phantom import bytecode, risk, spans
 from phantom.models import (
     Artifact,
     Confidence,
@@ -50,6 +50,12 @@ def diff(
         if file.path.endswith(".pth"):
             files_scanned += 1
             findings.append(_pth_finding(file))
+            continue
+        if bytecode.is_pyc(file.path):
+            files_scanned += 1
+            finding = _pyc_finding(file, source)
+            if finding is not None:
+                findings.append(finding)
             continue
         normalizer = _normalizer_for(file, normalizers)
         if normalizer is None:
@@ -166,6 +172,29 @@ def _pth_finding(file: FileEntry) -> Finding:
             )
         ),
         execution_vectors=["startup:.pth-import"] if has_import else [],
+    )
+
+
+def _pyc_finding(file: FileEntry, source: SourceTree) -> Finding | None:
+    """Flag compiled bytecode that has no declared source to audit against.
+
+    Returns None when a source module plausibly exists (the .pyc is just a
+    compiled form of source verified through its own .py).
+    """
+    module_path = bytecode.source_module_path(file.path)
+    if bytecode.has_source_counterpart(module_path, source.files):
+        return None
+    return Finding(
+        type=FindingType.PHANTOM_FILE,
+        path=file.path,
+        severity=Severity.MEDIUM,
+        confidence=Confidence.HIGH,
+        reason=(
+            f"compiled bytecode {file.path} has no corresponding source module "
+            f"({module_path}) in {source.repo_url}@{source.ref}; executable "
+            f"content shipped only as bytecode cannot be audited against source"
+        ),
+        execution_vectors=["bytecode:no-source"],
     )
 
 
