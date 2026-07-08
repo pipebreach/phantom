@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phantom-scan"
-version = "0.5.0"
+version = "0.6.0"
 description = "Detect divergence between a package's declared source and its published artifact"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ Source = "https://github.com/pipebreach/phantom"
 Repository = "https://github.com/pipebreach/phantom"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "build>=1"]
 
 [project.scripts]
 phantom = "phantom.cli:main"
