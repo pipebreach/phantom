@@ -48,6 +48,7 @@ What a scan does:
 4. When a diverging file *does* exist in the source, runs an intra-file AST diff to localize the injected or modified statements (**phantom spans**, reported with line numbers).
 5. Grades each phantom by its execution vectors (subprocess, network, `exec`/`eval`, `os.environ` access). Reading data + network egress = `critical` (exfiltration shape).
 6. Any `.pth` file inside a wheel is always flagged (it executes at interpreter startup).
+7. Compiled bytecode (`.pyc`) shipped without a corresponding source module is flagged as unauditable: executable content that can't be checked against source.
 
 For npm, tarballs are compared by raw (line-ending-normalized) content and JS phantom files are graded by capability patterns (`child_process`, `fetch`, `process.env`, `eval`).
 
@@ -139,7 +140,8 @@ print(result.to_dict())
 
 Explicitly **not supported yet**; the plugin architecture (`Ecosystem`/`Fetcher`/`SourceResolver`/`Normalizer` interfaces) is designed so these land without touching the core:
 
-- **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3). Needs build-step normalizers (M3).
+- **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3). Needs build-step normalizers.
+- **Deep bytecode verification**: `.pyc` shipped *without* source is flagged, but `.pyc` shipped *alongside* source is trusted as its compiled form rather than decompiled and compared (`marshal` is unsafe on hostile data).
 - **Built/minified JavaScript**: npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land.
 - **Phantom spans for JS**: intra-file localization currently requires a Python AST; diverging JS files are reported whole.
 - **Forges other than GitHub and GitLab** (Codeberg, self-hosted, etc.): not resolved yet.

@@ -9,4 +9,4 @@ Core entry point for library use::
     result = scan("some-pkg", "1.2.3", registry.get("pypi"))
 """
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
