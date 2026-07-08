@@ -7,9 +7,10 @@ cause false positives.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 
-from phantom import bytecode, risk, spans
+from phantom import bytecode, risk, sourcemaps, spans
 from phantom.models import (
     Artifact,
     Confidence,
@@ -20,6 +21,8 @@ from phantom.models import (
     SourceTree,
 )
 from phantom.normalizers.base import Normalizer
+
+_JS_EXTENSIONS = (".js", ".mjs", ".cjs")
 
 # Commonly generated at build time (setuptools-scm, hatch-vcs); a phantom
 # hit on these gets low confidence.
@@ -37,10 +40,24 @@ class DiffOutcome:
     files_scanned: int
 
 
+@dataclass(frozen=True)
+class _Context:
+    """Shared lookups a diverging-file finding may need beyond the file itself."""
+
+    source: SourceTree
+    artifact_by_path: dict[str, FileEntry]
+    source_raw_hashes: frozenset[str]
+
+
 def diff(
     artifact: Artifact, source: SourceTree, normalizers: list[Normalizer]
 ) -> DiffOutcome:
     source_hashes = _build_index(source.files, normalizers)
+    ctx = _Context(
+        source=source,
+        artifact_by_path={file.path: file for file in artifact.files},
+        source_raw_hashes=frozenset(_raw_hash(file.data) for file in source.files),
+    )
     findings: list[Finding] = []
     files_scanned = 0
 
@@ -63,22 +80,26 @@ def diff(
         files_scanned += 1
         if normalizer.normalized_hash(file) in source_hashes:
             continue
-        findings.extend(_diverging_file_findings(file, source))
+        findings.extend(_diverging_file_findings(file, ctx))
 
     findings.sort(key=lambda f: (-f.severity.rank, f.path or "", f.start_line or 0))
     return DiffOutcome(findings=findings, files_scanned=files_scanned)
 
 
-def _diverging_file_findings(file: FileEntry, source: SourceTree) -> list[Finding]:
+def _raw_hash(data: bytes) -> str:
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
+def _diverging_file_findings(file: FileEntry, ctx: _Context) -> list[Finding]:
     """A diverging Python file with a source counterpart gets span-level
     localization; anything else is a whole phantom file."""
     if file.path.endswith(".py"):
-        counterpart = spans.find_source_counterpart(file, source.files)
+        counterpart = spans.find_source_counterpart(file, ctx.source.files)
         if counterpart is not None:
             found = spans.find_spans(file, counterpart[0])
             if found is not None:
-                return _span_findings(file, counterpart, found, source)
-    return [_phantom_finding(file, source)]
+                return _span_findings(file, counterpart, found, ctx.source)
+    return [_phantom_finding(file, ctx)]
 
 
 def _span_findings(
@@ -198,7 +219,8 @@ def _pyc_finding(file: FileEntry, source: SourceTree) -> Finding | None:
     )
 
 
-def _phantom_finding(file: FileEntry, source: SourceTree) -> Finding:
+def _phantom_finding(file: FileEntry, ctx: _Context) -> Finding:
+    source = ctx.source
     assessment = risk.assess(file)
     basename = file.path.rsplit("/", 1)[-1]
     confidence = Confidence.HIGH
@@ -212,14 +234,19 @@ def _phantom_finding(file: FileEntry, source: SourceTree) -> Finding:
             "; note: this filename is commonly generated at build time "
             "(e.g. setuptools-scm), so this may be legitimate generated code"
         )
-    elif file.path.startswith(_LIKELY_BUILD_PREFIXES) or file.path.endswith(
-        _LIKELY_BUILD_SUFFIXES
-    ):
-        confidence = Confidence.LOW
-        reason += (
-            "; note: this path looks like build/bundle output, which cannot "
-            "be verified against the source until build normalizers exist"
-        )
+    else:
+        source_map = _sourcemap_note(file, ctx)
+        if source_map is not None:
+            confidence, note = source_map
+            reason += note
+        elif file.path.startswith(_LIKELY_BUILD_PREFIXES) or file.path.endswith(
+            _LIKELY_BUILD_SUFFIXES
+        ):
+            confidence = Confidence.LOW
+            reason += (
+                "; note: this path looks like build/bundle output, which cannot "
+                "be verified against the source until build normalizers exist"
+            )
     return Finding(
         type=FindingType.PHANTOM_FILE,
         path=file.path,
@@ -227,4 +254,39 @@ def _phantom_finding(file: FileEntry, source: SourceTree) -> Finding:
         confidence=confidence,
         reason=reason,
         execution_vectors=assessment.vectors,
+    )
+
+
+def _sourcemap_note(file: FileEntry, ctx: _Context) -> tuple[Confidence, str] | None:
+    """Use a built JS file's source map to relate it to the declared source.
+
+    Returns a (confidence, reason-suffix) pair, or None when there is no usable
+    source map. All embedded originals present in the repo means the built
+    output is accounted for (low confidence); originals absent from the repo is
+    a provenance signal (medium confidence).
+    """
+    if not file.path.endswith(_JS_EXTENSIONS):
+        return None
+    source_map = sourcemaps.find_source_map(file, ctx.artifact_by_path)
+    if source_map is None:
+        return None
+    originals = sourcemaps.embedded_originals(source_map)
+    if not originals:
+        return None
+    missing = sum(
+        1
+        for original in originals
+        if _raw_hash(original.encode("utf-8")) not in ctx.source_raw_hashes
+    )
+    if missing == 0:
+        return (
+            Confidence.LOW,
+            f"; note: built output, and all {len(originals)} source-map "
+            f"original(s) are present in the declared source",
+        )
+    return (
+        Confidence.MEDIUM,
+        f"; note: this built file's source map references {missing} of "
+        f"{len(originals)} original source file(s) not present in the declared "
+        f"source",
     )
