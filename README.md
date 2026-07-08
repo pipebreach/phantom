@@ -38,6 +38,9 @@ phantom scan requests==2.31.0 --sarif   # for GitHub code scanning
 
 # Scan against a different index (TestPyPI, a private mirror)
 phantom scan mypkg==1.0.0 --index-url https://test.pypi.org/pypi
+
+# Assisted rebuild: build the wheel from the sdist and diff it (see REBUILD.md)
+phantom scan mypkg==1.0.0 --rebuild
 ```
 
 What a scan does:
@@ -122,6 +125,15 @@ Every finding carries a `confidence` and a `reason`: phantom prefers saying "thi
 
 The `--json` output is a versioned public contract (`schema_version`); breaking changes bump the version.
 
+## Assisted rebuild
+
+`--rebuild` builds a wheel from the published sdist and diffs it against the
+published wheel, catching a wheel tampered after the source was cut even when
+the sdist is clean. It **executes the package's build**, so it is opt-in and
+must run in a disposable, network-restricted environment; phantom denies the
+build network access via `unshare --net` when available. Full details and the
+Codespaces setup are in [REBUILD.md](REBUILD.md).
+
 ## Library use
 
 The CLI is a thin layer over the core (usable in CI, batch jobs, services):
@@ -140,7 +152,7 @@ print(result.to_dict())
 
 Explicitly **not supported yet**; the plugin architecture (`Ecosystem`/`Fetcher`/`SourceResolver`/`Normalizer` interfaces) is designed so these land without touching the core:
 
-- **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3). Needs build-step normalizers.
+- **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3) by a normal scan. Assisted rebuild (`--rebuild`) covers the sdist-to-wheel path for pure-Python packages.
 - **Deep bytecode verification**: `.pyc` shipped *without* source is flagged, but `.pyc` shipped *alongside* source is trusted as its compiled form rather than decompiled and compared (`marshal` is unsafe on hostile data).
 - **Built/minified JavaScript**: comparison is raw content. Source maps relate built output to declared source when present, but files with a build step and no usable source map still produce `low`-confidence findings; faithful reconstruction (running the build) is future work.
 - **Phantom spans for JS**: intra-file localization currently requires a Python AST; diverging JS files are reported whole.
