@@ -50,7 +50,7 @@ What a scan does:
 6. Any `.pth` file inside a wheel is always flagged (it executes at interpreter startup).
 7. Compiled bytecode (`.pyc`) shipped without a corresponding source module is flagged as unauditable: executable content that can't be checked against source.
 
-For npm, tarballs are compared by raw (line-ending-normalized) content and JS phantom files are graded by capability patterns (`child_process`, `fetch`, `process.env`, `eval`).
+For npm, tarballs are compared by raw (line-ending-normalized) content and JS phantom files are graded by capability patterns (`child_process`, `fetch`, `process.env`, `eval`). When a built JS file ships a source map (inline or `.map`), phantom checks the map's embedded originals against the declared source: if they are all present, the built output is accounted for (low confidence); if the map references source absent from the repo, that is a provenance signal (medium confidence).
 
 Downloads are cached on disk (`~/.cache/phantom` by default, `--cache-dir` to override), so re-scanning the same `pkg==version` is deterministic and offline.
 
@@ -142,7 +142,7 @@ Explicitly **not supported yet**; the plugin architecture (`Ecosystem`/`Fetcher`
 
 - **Compiled/binary wheels and sdist-only releases**: reported as out of scope (exit 3). Needs build-step normalizers.
 - **Deep bytecode verification**: `.pyc` shipped *without* source is flagged, but `.pyc` shipped *alongside* source is trusted as its compiled form rather than decompiled and compared (`marshal` is unsafe on hostile data).
-- **Built/minified JavaScript**: npm comparison is raw content; packages with a build step (`dist/` bundles, `.min.js`) produce `low`-confidence findings until minification/transpilation normalizers land.
+- **Built/minified JavaScript**: comparison is raw content. Source maps relate built output to declared source when present, but files with a build step and no usable source map still produce `low`-confidence findings; faithful reconstruction (running the build) is future work.
 - **Phantom spans for JS**: intra-file localization currently requires a Python AST; diverging JS files are reported whole.
 - **Forges other than GitHub and GitLab** (Codeberg, self-hosted, etc.): not resolved yet.
 - **Tag-based resolution only**: packages that publish from a commit without tagging that version yield `source_ref_not_found`. Common tag conventions (`v`-prefix, CalVer date zero-padding) are probed; unusual schemes are not.
